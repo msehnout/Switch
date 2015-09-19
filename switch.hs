@@ -1,3 +1,4 @@
+import Text.Read (readMaybe)
 import Network
 import System.IO (hGetLine, hPutStrLn, hPutStr)
 import Control.Concurrent (forkIO)
@@ -29,7 +30,11 @@ switch channels clients = do
       readChannel    = snd channels
   message <- atomically $ readTChan readChannel
   newClients <- importNewClients controlChannel clients
-  mapM (\(_,channel) -> atomically (writeTChan channel message)) newClients
+  --mapM (\(_,channel) -> atomically (writeTChan channel message)) newClients
+  let maybeChannel = lookup (read . head . words $ message) newClients
+  case maybeChannel of
+    Nothing -> mapM (\(_,channel) -> atomically (writeTChan channel message)) newClients
+    Just chan -> mapM (\channel -> atomically (writeTChan channel message)) [chan]
   switch channels newClients
 
 importNewClients controlChannel clients = do
@@ -42,7 +47,10 @@ readFromClient handle channel = do
   hPutStr handle "Prompt> "
   message <- hGetLine handle
   putStrLn $ "[client channel] " ++ message
-  atomically $ writeTChan channel message
+  let addr = readMaybe . head . words $ message :: Maybe Int
+  case addr of
+    Nothing -> hPutStrLn handle "Error! Bad message format."
+    Just _ -> atomically $ writeTChan channel message
   readFromClient handle channel
 
 writeToClient handle channel = do
