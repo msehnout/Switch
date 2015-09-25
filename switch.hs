@@ -11,6 +11,7 @@ main = do
   readChannel <- atomically newTChan
   let channels = (controlChannel, readChannel)
   socket <- listenOn $ PortNumber 4242
+  putStrLn $ "Starting switch on port: " ++ show 4242
   forkIO $ switch channels []
   acceptLoop socket channels 0
 
@@ -18,6 +19,7 @@ acceptLoop socket channels address = do
   (handle,_,_) <- accept socket
   let controlChannel = fst channels
       readChannel    = snd channels
+  putStrLn $ "Creating new client with address: " ++ show address
   clientReadChannel <- atomically $ dupTChan readChannel
   clientWriteChannel <- atomically newTChan
   forkIO $ readFromClient handle clientReadChannel
