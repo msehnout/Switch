@@ -1,6 +1,8 @@
-module Switch.Parse
+module Switch.Message
 ( checkFormat
 , readDestination
+, createMessage
+, header
 ) where
 
 import Switch.Types
@@ -12,6 +14,8 @@ import Text.Read (readMaybe)
 zerothLine = "SWITCH MESSAGE"
 firstLine = "Source: "
 secondLine = "Destination: "
+
+header = zerothLine
 
 zerothLineRE   = zerothLine
 firstLineRE    = "[sS]ource:"

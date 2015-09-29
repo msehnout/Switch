@@ -1,7 +1,9 @@
 import Network (connectTo, PortID(PortNumber))
-import System.IO (getLine, putStrLn, hGetLine, hPutStrLn)
+import System.IO (getLine, putStrLn, hGetLine, hPutStr)
 import System.Environment (getArgs)
 import Control.Concurrent (forkIO)
+
+import Switch.Message (createMessage)
 
 main :: IO()
 main =  do
@@ -18,7 +20,7 @@ main =  do
 
 loop socket = do
   line <- getLine
-  hPutStrLn socket line
+  hPutStr socket $ createMessage 0 1 (Just line)
   loop socket
 
 readLoop socket = do

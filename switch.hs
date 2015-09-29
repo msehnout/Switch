@@ -5,6 +5,8 @@ import Control.Concurrent (forkIO)
 import Control.Monad.STM (atomically)
 import Control.Concurrent.STM.TChan (TChan, newTChan, dupTChan, readTChan, tryReadTChan, writeTChan)
 
+import Switch.Message (checkFormat, readDestination, header)
+
 main :: IO()
 main = do
   controlChannel <- atomically newTChan
@@ -33,7 +35,7 @@ switch channels clients = do
   message <- atomically $ readTChan readChannel
   newClients <- importNewClients controlChannel clients
   --mapM (\(_,channel) -> atomically (writeTChan channel message)) newClients
-  let maybeChannel = lookup (read . head . words $ message) newClients
+  let maybeChannel = lookup (readDestination message) newClients
   case maybeChannel of
     Nothing -> mapM (\(_,channel) -> atomically (writeTChan channel message)) newClients
     Just chan -> mapM (\channel -> atomically (writeTChan channel message)) [chan]
@@ -47,13 +49,25 @@ importNewClients controlChannel clients = do
 
 readFromClient handle channel = do
   hPutStr handle "Prompt> "
-  message <- hGetLine handle
-  putStrLn $ "[client channel] " ++ message
-  let addr = readMaybe . head . words $ message :: Maybe Int
-  case addr of
-    Nothing -> hPutStrLn handle "Error! Bad message format."
-    Just _ -> atomically $ writeTChan channel message
-  readFromClient handle channel
+  line <- hGetLine handle
+  if line == header
+    then do
+      message <- readMultipleLines handle
+      putStrLn $ "[client channel] " ++ message
+      let format = checkFormat message
+      case format of
+        False -> hPutStrLn handle "Error! Bad message format."
+        True  -> atomically $ writeTChan channel message
+      readFromClient handle channel
+    else do
+      hPutStrLn handle "Error! Bad message format.2"
+      readFromClient handle channel
+
+readMultipleLines handle = do
+  line1 <- hGetLine handle
+  line2 <- hGetLine handle
+  line3 <- hGetLine handle
+  return $ unlines [header, line1, line2, line3]
 
 writeToClient handle channel = do
   message <- atomically $ readTChan channel
