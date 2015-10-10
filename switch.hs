@@ -1,6 +1,6 @@
 import Text.Read (readMaybe)
 import Network
-import System.IO (hGetLine, hPutStrLn, hPutStr)
+import System.IO (hGetLine, hPutStrLn, hPutStr, hClose)
 import Control.Concurrent (forkIO)
 import Control.Monad.STM (atomically)
 import Control.Concurrent.STM.TChan (TChan, newTChan, dupTChan, readTChan, tryReadTChan, writeTChan)
@@ -21,6 +21,9 @@ acceptLoop socket channels address = do
   (handle,_,_) <- accept socket
   let controlChannel = fst channels
       readChannel    = snd channels
+  --hPutStrLn handle "Ahoj ;-) \n Sbohem!"
+  --hClose handle
+  --acceptLoop socket channels (address+1)
   putStrLn $ "Creating new client with address: " ++ show address
   clientReadChannel <- atomically $ dupTChan readChannel
   clientWriteChannel <- atomically newTChan

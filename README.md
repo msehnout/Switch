@@ -30,6 +30,6 @@ Address: <node id>\n
 
 Switch respond:
 ```
-SWITCH ANSWER\n
+SWITCH RESPOND\n
 Address (accepted|not accepted)\n
 ```

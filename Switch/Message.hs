@@ -17,6 +17,7 @@ secondLine = "Destination: "
 
 header = zerothLine
 
+-- Regular expressions to check message format
 zerothLineRE   = zerothLine
 firstLineRE    = "[sS]ource:"
 secondLineRE   = "[dD]estination:"
@@ -37,14 +38,14 @@ checkFormat message =
                     then True
                     else False
 
-
+-- Read only destination address from message
 readDestination :: Message -> Address
 readDestination message =
   let messageLines = lines message
       (_,_,destAddrStr)   = messageLines !! 2 =~ secondLineRE :: (String, String, String)
   in read destAddrStr :: Address
 
-
+-- Create new message in client
 -- Source -> Destination -> Message Text -> Whole message
 createMessage :: Address -> Address -> Maybe String -> Message
 createMessage src dest (Just text) =
