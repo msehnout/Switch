@@ -7,6 +7,7 @@ import Control.Concurrent.STM.TChan (TChan, newTChan, dupTChan, readTChan, tryRe
 
 import Switch.Message (checkFormat, readDestination, header)
 import Switch.Address (readRequest, respondAccepted, respondNotAccepted)
+import Switch.Types
 
 main :: IO()
 main = do
@@ -16,21 +17,25 @@ main = do
   socket <- listenOn $ PortNumber 4242
   putStrLn $ "Starting switch on port: " ++ show 4242
   forkIO $ switch channels []
-  acceptLoop socket channels 0
+  acceptLoop socket channels 
 
-acceptLoop socket channels address = do
+acceptLoop socket channels = do
   (handle,_,_) <- accept socket
   let controlChannel = fst channels
       readChannel    = snd channels
   -- TODO: before accepting new client acqire its address
-  obtainAddress handle
-  putStrLn $ "Creating new client with address: " ++ show address
-  clientReadChannel <- atomically $ dupTChan readChannel
-  clientWriteChannel <- atomically newTChan
-  forkIO $ readFromClient handle clientReadChannel
-  forkIO $ writeToClient handle clientWriteChannel
-  atomically $ writeTChan controlChannel (address,clientWriteChannel)
-  acceptLoop socket channels (address+1)
+  addr <- obtainAddress handle
+  --putStrLn $ "Creating new client with address: " ++ show address
+  --clientReadChannel <- atomically $ dupTChan readChannel
+  --clientWriteChannel <- atomically newTChan
+  --forkIO $ readFromClient handle clientReadChannel
+  --forkIO $ writeToClient handle clientWriteChannel
+  case addr of
+    Just address -> do
+        atomically $ writeTChan controlChannel (RequestAddr,address,handle)--(address,clientWriteChannel)
+        acceptLoop socket channels 
+    Nothing -> do
+        acceptLoop socket channels 
 
 -- Read two lines from user, decide whether it is a request
 -- for address and do sth about it
@@ -41,10 +46,12 @@ obtainAddress handle = do
   case mAddr of
     Just addr -> do -- send control message do switch thread 
       putStrLn $ "Obtained address request from client: " ++ show addr
+      return $ Just addr
     Nothing -> do -- say bye, bye to client and close handle
       hPutStrLn handle "Wrong initial sequence! Switch expected address of your client."
       hPutStrLn handle "Bye!"
       hClose handle
+      return Nothing
 
 switch channels clients = do
   let controlChannel = fst channels
@@ -58,7 +65,10 @@ switch channels clients = do
           Just chan -> mapM (\channel -> atomically (writeTChan channel message)) [chan]
         switch channels clients
     Right clientTuple -> do
-        switch channels (clientTuple:clients)
+        let (_,addr,handle) = clientTuple
+        newClientChannel <- forkNewClient readChannel handle
+        let newClientTuple = (addr,newClientChannel)
+        switch channels (newClientTuple:clients)
 
 -- Read from two channels (user, control) "simultaneousely" and return messages
 select :: TChan a -> TChan b -> STM (Either a b)
@@ -66,6 +76,14 @@ select ch1 ch2 = do
   a <- readTChan ch1; return (Left a)
   `orElse` do
   b <- readTChan ch2; return (Right b)
+
+forkNewClient readChannel handle = do
+  --putStrLn $ "Creating new client with address: " ++ show address
+  clientReadChannel <- atomically $ dupTChan readChannel
+  clientWriteChannel <- atomically newTChan
+  forkIO $ readFromClient handle clientReadChannel
+  forkIO $ writeToClient handle clientWriteChannel
+  return clientWriteChannel
 
 readFromClient handle channel = do
   hPutStr handle "Prompt> "
