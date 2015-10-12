@@ -1,22 +1,38 @@
 module Switch.Address
 ( createRequest
+, readRequest
 , respondAccepted
 , respondNotAccepted
+, readRespond
 ) where
 
 import Switch.Types
+import Text.Read (readMaybe)
+import Text.Regex.Posix
 
 -- Address request:
 requestHeader = "SWITCH REQUEST"
 requestBody = "Address: "
 
 -- Check request message regular expressions
-requestHeaderRE = requestHeader
 requestBodyRE = "[aA]ddress:"
 
 -- Create request message
 createRequest :: Address -> Message
 createRequest addr = unlines [requestHeader, requestBody ++ show addr]
+
+-- Read the request on server side
+readRequest :: Message -> Maybe Address
+readRequest msg = 
+  let [fstLine, sndLine] = take 2 $ lines msg
+      -- fstLine = (lines msg) !! 0
+      -- sndLine = (lines msg) !! 1
+      fstMatch = fstLine == requestHeader
+      (_,_,addrStr) = sndLine =~ requestBodyRE :: (String, String, String)
+      requestedAddr = readMaybe addrStr :: Maybe Address
+  in if fstMatch == False
+        then Nothing
+        else requestedAddr
 
 -- Switch respond messages:
 respondHeader = "SWITCH RESPOND"
