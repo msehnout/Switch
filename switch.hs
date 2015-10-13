@@ -5,9 +5,13 @@ import Control.Concurrent (forkIO)
 import Control.Monad.STM (atomically, orElse, STM)
 import Control.Concurrent.STM.TChan (TChan, newTChan, dupTChan, readTChan, tryReadTChan, writeTChan)
 
-import Switch.Message (checkFormat, readDestination, header)
+import Switch.Message (checkFormat, readDestination, readSource, header)
 import Switch.Address (readRequest, respondAccepted, respondNotAccepted)
 import Switch.Types
+
+{-
+ Initial sequence
+-}
 
 main :: IO()
 main = do
@@ -18,6 +22,10 @@ main = do
   putStrLn $ "Starting switch on port: " ++ show 4242
   forkIO $ switch channels []
   acceptLoop socket channels 
+
+{-
+ Accept loop with function for obtaining address
+-}
 
 acceptLoop socket channels = do
   (handle,_,_) <- accept socket
@@ -53,6 +61,10 @@ obtainAddress handle = do
       hClose handle
       return Nothing
 
+{-
+ Main switch loop and its functions
+-}
+
 switch channels clients = do
   let controlChannel = fst channels
       readChannel    = snd channels
@@ -66,10 +78,18 @@ switch channels clients = do
         switch channels clients
     Right clientTuple -> do
         let (_,addr,handle) = clientTuple
-        newClientChannel <- forkNewClient readChannel handle
-        let newClientTuple = (addr,newClientChannel)
-        switch channels (newClientTuple:clients)
-
+            maybeChannel = lookup addr clients
+        case maybeChannel of
+          Nothing -> do
+            newClientChannel <- forkNewClient readChannel handle addr
+            let newClientTuple = (addr,newClientChannel)
+            switch channels (newClientTuple:clients)
+          Just _ -> do
+            hPutStrLn handle "Address is already in use. Pick some other number."
+            hPutStrLn handle "Bye!"
+            hClose handle
+            switch channels (clients)
+ 
 -- Read from two channels (user, control) "simultaneousely" and return messages
 select :: TChan a -> TChan b -> STM (Either a b)
 select ch1 ch2 = do 
@@ -77,29 +97,34 @@ select ch1 ch2 = do
   `orElse` do
   b <- readTChan ch2; return (Right b)
 
-forkNewClient readChannel handle = do
+forkNewClient readChannel handle addr = do
   --putStrLn $ "Creating new client with address: " ++ show address
   clientReadChannel <- atomically $ dupTChan readChannel
   clientWriteChannel <- atomically newTChan
-  forkIO $ readFromClient handle clientReadChannel
+  forkIO $ readFromClient handle clientReadChannel addr
   forkIO $ writeToClient handle clientWriteChannel
   return clientWriteChannel
 
-readFromClient handle channel = do
-  hPutStr handle "Prompt> "
+{-
+ Client thread functions
+-}
+
+readFromClient handle channel addr = do
   line <- hGetLine handle
   if line == header
     then do
       message <- readMultipleLines handle
-      putStrLn $ "[client channel] " ++ message
+      putStrLn $ "[client channel]\n" ++ message
       let format = checkFormat message
       case format of
         False -> hPutStrLn handle "Error! Bad message format."
-        True  -> atomically $ writeTChan channel message
-      readFromClient handle channel
+        True  -> do
+            if readSource message == addr
+               then atomically $ writeTChan channel message
+               else hPutStrLn handle "Wrong source address!"
     else do
       hPutStrLn handle "Error! Bad message format.2"
-      readFromClient handle channel
+  readFromClient handle channel addr
 
 readMultipleLines handle = do
   lines <- sequence $ take 3 $ repeat $ hGetLine handle
