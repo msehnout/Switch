@@ -1,4 +1,5 @@
 import Text.Read (readMaybe)
+import Data.IntMap.Strict (toList, fromList, delete)
 import Network
 import System.IO (hGetLine, hPutStrLn, hPutStr, hClose)
 import Control.Concurrent (forkIO)
@@ -21,7 +22,7 @@ main = do
   socket <- listenOn $ PortNumber 4242
   putStrLn $ "Starting switch on port: " ++ show 4242
   forkIO $ switch channels []
-  acceptLoop socket channels 
+  acceptLoop socket channels
 
 {-
  Accept loop with function for obtaining address
@@ -31,28 +32,21 @@ acceptLoop socket channels = do
   (handle,_,_) <- accept socket
   let controlChannel = fst channels
       readChannel    = snd channels
-  -- TODO: before accepting new client acqire its address
   addr <- obtainAddress handle
-  --putStrLn $ "Creating new client with address: " ++ show address
-  --clientReadChannel <- atomically $ dupTChan readChannel
-  --clientWriteChannel <- atomically newTChan
-  --forkIO $ readFromClient handle clientReadChannel
-  --forkIO $ writeToClient handle clientWriteChannel
   case addr of
     Just address -> do
-        atomically $ writeTChan controlChannel (RequestAddr,address,handle)--(address,clientWriteChannel)
-        acceptLoop socket channels 
+        atomically $ writeTChan controlChannel (RequestAddr,address,handle)
+        acceptLoop socket channels
     Nothing -> do
-        acceptLoop socket channels 
+        acceptLoop socket channels
 
 -- Read two lines from user, decide whether it is a request
 -- for address and do sth about it
-obtainAddress handle = do    
+obtainAddress handle = do
   msg <- sequence $ take 2 $ repeat $ hGetLine handle
-  -- let msg = unlines [line1, line2]
   let mAddr = readRequest $ unlines msg
   case mAddr of
-    Just addr -> do -- send control message do switch thread 
+    Just addr -> do -- send control message do switch thread
       putStrLn $ "Obtained address request from client: " ++ show addr
       return $ Just addr
     Nothing -> do -- say bye, bye to client and close handle
@@ -68,7 +62,7 @@ obtainAddress handle = do
 switch channels clients = do
   let controlChannel = fst channels
       readChannel    = snd channels
-  input <- atomically $ select readChannel controlChannel 
+  input <- atomically $ select readChannel controlChannel
   case input of
     Left message -> do
         let maybeChannel = lookup (readDestination message) clients
@@ -77,22 +71,36 @@ switch channels clients = do
           Just chan -> mapM (\channel -> atomically (writeTChan channel message)) [chan]
         switch channels clients
     Right clientTuple -> do
-        let (_,addr,handle) = clientTuple
-            maybeChannel = lookup addr clients
-        case maybeChannel of
-          Nothing -> do
-            newClientChannel <- forkNewClient readChannel handle addr
-            let newClientTuple = (addr,newClientChannel)
-            switch channels (newClientTuple:clients)
-          Just _ -> do
-            hPutStrLn handle "Address is already in use. Pick some other number."
-            hPutStrLn handle "Bye!"
-            hClose handle
-            switch channels (clients)
- 
+        let (msgType,addr,handle) = clientTuple
+        if msgType == RequestAddr 
+           then do
+               let maybeChannel = lookup addr clients
+               case maybeChannel of
+                 Nothing -> do
+                   newClientChannel <- forkNewClient readChannel handle addr
+                   let newClientTuple = (addr,newClientChannel)
+                   putStrLn $ "[internal] Added new client with address: " ++ show addr
+                   switch channels (newClientTuple:clients)
+                 Just _ -> do
+                   putStrLn "[internal] Attempt to use duplicate address. Connection closed."
+                   hPutStrLn handle "Address is already in use. Pick some other number."
+                   hPutStrLn handle "Bye!"
+                   hClose handle
+                   switch channels clients
+           else do
+               let maybeChannel = lookup addr clients
+               case maybeChannel of
+                 Nothing -> do
+                     putStrLn "[Error] Internal error occured. Attempt to delete non-existing address"
+                     switch channels clients
+                 Just chan -> do
+                     let newClients = addr `removeFrom` clients
+                     switch channels newClients
+                     where removeFrom a = toList.(delete a).fromList
+
 -- Read from two channels (user, control) "simultaneousely" and return messages
 select :: TChan a -> TChan b -> STM (Either a b)
-select ch1 ch2 = do 
+select ch1 ch2 = do
   a <- readTChan ch1; return (Left a)
   `orElse` do
   b <- readTChan ch2; return (Right b)
@@ -114,7 +122,7 @@ readFromClient handle channel addr = do
   if line == header
     then do
       message <- readMultipleLines handle
-      putStrLn $ "[client channel]\n" ++ message
+      putStr $ "[client channel]\n" ++ message
       let format = checkFormat message
       case format of
         False -> hPutStrLn handle "Error! Bad message format."
@@ -134,4 +142,3 @@ writeToClient handle channel = do
   message <- atomically $ readTChan channel
   hPutStrLn handle message
   writeToClient handle channel
-

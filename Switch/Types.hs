@@ -10,4 +10,4 @@ type Message = String
 
 data AddressRespond = Accepted | NotAccepted deriving (Show)
 
-data ControlMsg = RequestAddr | DeleteAddr deriving (Show)
+data ControlMsg = RequestAddr | DeleteAddr deriving (Eq, Show)
