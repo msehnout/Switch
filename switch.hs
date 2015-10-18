@@ -1,15 +1,17 @@
 import Text.Read (readMaybe)
 import Data.IntMap.Strict (toList, fromList, delete)
 import Network
-import System.IO (hGetLine, hPutStrLn, hPutStr, hClose)
+import System.IO (Handle, hGetLine, hPutStrLn, hPutStr, hClose)
 import System.IO.Error (isEOFError)
 import System.Timeout (timeout)
 import Control.Exception.Base (try)
 import Control.Concurrent (forkIO)
+import Control.Monad (when)
 import Control.Monad.STM (atomically, orElse, STM)
+import Control.Applicative
 import Control.Concurrent.STM.TChan (TChan, newTChan, dupTChan, readTChan, tryReadTChan, writeTChan)
 
-import Switch.Message (checkFormat, readDestination, readSource, header)
+import Switch.Message (checkFormat, readDestination, readSource, readText, header)
 import Switch.Address (readRequest, respondAccepted, respondNotAccepted)
 import Switch.Types
 
@@ -75,14 +77,14 @@ switch channels clients = do
         switch channels clients
     Right clientTuple -> do
         let (msgType,addr,handle) = clientTuple
-        if msgType == RequestAddr 
+        if msgType == RequestAddr
            then do
                let maybeChannel = lookup addr clients
                case maybeChannel of
                  Nothing -> do
                    newClientChannel <- forkNewClient controlChannel readChannel handle addr
                    let newClientTuple = (addr,newClientChannel)
-                   putStrLn $ "[internal] Added new client with address: " ++ show addr
+                   putStr $ "[internal] Added new client with address: " ++ show addr ++ ". Clients:"
                    dbgShowClients (newClientTuple:clients)
                    switch channels (newClientTuple:clients)
                  Just _ -> do
@@ -99,9 +101,9 @@ switch channels clients = do
                      switch channels clients
                  Just chan -> do
                      let newClients = addr `removeFrom` clients
-                     putStrLn $ "[internal] Client " ++ show addr ++ " removed." 
+                     putStr $ "[internal] Client " ++ show addr ++ " removed. Clients: "
                      hClose handle
-                     dbgShowClients newClients 
+                     dbgShowClients newClients
                      switch channels newClients
                      where removeFrom a = toList.(delete a).fromList
 
@@ -125,58 +127,72 @@ forkNewClient controlChannel readChannel handle addr = do
   clientWriteChannel <- atomically newTChan
   killSignal <- atomically newTChan
   forkIO $ readFromClient addr handle controlChannel clientReadChannel killSignal
-  forkIO $ writeToClient handle clientWriteChannel killSignal
+  forkIO $ writeToClient addr handle clientWriteChannel killSignal
   return clientWriteChannel
 
 {-
  Client thread functions
 -}
-
 readFromClient addr handle controlChannel channel killSignal = do
-  maybeInput <- timeout (15*10^6) $ try $ hGetLine handle
+  maybeInput <- timeout (15*10^6) $ readMessage handle
   case maybeInput of
     Nothing -> do
       putStrLn $ "[internal] Timeout for client " ++ show addr
       hPutStrLn handle "Timeout. Bye!"
-      killClient 
-    Just input ->
-      case input of
-        Left e -> do
-          if isEOFError e
-             then do
-                 putStrLn $ "[internal] Reached EOF of client " ++ show addr
-                 killClient
-             else ioError e
-        Right line -> do
-          if line == header
-            then do
-              message <- readMultipleLines handle
-              putStr $ "[client channel]\n" ++ message
-              let format = checkFormat message
-              case format of
-                False -> hPutStrLn handle "Error! Bad message format."
-                True  -> do
-                    if readSource message == addr
-                       then atomically $ writeTChan channel message
-                       else hPutStrLn handle "Wrong source address!"
-            else do
-              hPutStrLn handle "Error! Bad message format.2"
+      killClient
+    Just maybeMsg ->
+      case maybeMsg of
+        Nothing -> do
+          putStrLn $ "[internal] Reached EOF of client " ++ show addr
+          killClient
+        Just message -> do
+          if checkFormat message == False
+            then hPutStrLn handle "Error! Bad message format."
+            else if readSource message /= addr
+                    then hPutStrLn handle "Wrong source address!"
+                    else do
+                        let src = show . readSource $ message
+                            dest = show . readDestination $ message
+                            txt = readText message
+                        atomically $ writeTChan channel message
+                        putStrLn $ "[message] " ++src++ "->" ++dest++ ": " ++txt
           readFromClient addr handle controlChannel channel killSignal
 
   where killClient = do
           atomically $ writeTChan killSignal "kill"
           atomically $ writeTChan controlChannel (DeleteAddr,addr,handle)
 
-readMultipleLines handle = do
-  lines <- sequence $ take 3 $ repeat $ hGetLine handle
-  return $ unlines $ header:lines
+readMessage :: Handle -> IO(Maybe Message)
+readMessage handle = do
+  msgheader <- maybeReadLine handle
+  case msgheader of
+    Just line -> if line == header
+                    then do
+                      msglines <- sequence $ take 3 $ repeat $ maybeReadLine handle
+                      let addNewLines = map (\x-> fmap (++ "\n") x)
+                          maybeFold = foldl (\acc x -> (++) <$> acc <*> x) (Just [])
+                          maybeUnlines = maybeFold . addNewLines
+                      return $ maybeUnlines (Just header:msglines)
+                    else readMessage handle
+    Nothing -> return Nothing
 
-writeToClient handle channel killSignal = do
+maybeReadLine :: Handle -> IO(Maybe String)
+maybeReadLine handle = do
+  input <- try $ hGetLine handle
+  case input of
+    Left e -> do
+      if isEOFError e
+         then do
+             return Nothing
+         else ioError e
+    Right line -> return $ Just line
+
+writeToClient addr handle channel killSignal = do
   input <- atomically $ select channel killSignal
   case input of
     Left message -> do
-        hPutStrLn handle message
-        writeToClient handle channel killSignal 
+        when (readSource message /= addr) $ hPutStrLn handle message
+        writeToClient addr handle channel killSignal
     Right signal -> do
         if signal == "kill"
            then putStrLn "[internal] Client write thread killed"

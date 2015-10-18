@@ -2,6 +2,7 @@ module Switch.Message
 ( checkFormat
 , readDestination
 , readSource 
+, readText 
 , createMessage
 , header
 ) where
@@ -51,6 +52,11 @@ readSource message =
   let messageLines = lines message
       (_,_,sourceAddrStr)   = messageLines !! 1 =~ firstLineRE :: (String, String, String)
   in read sourceAddrStr :: Address
+
+readText :: Message -> String
+readText message = 
+    let messageLines = lines message
+    in messageLines !! 3
 
 -- Create new message in client
 -- Source -> Destination -> Message Text -> Whole message
