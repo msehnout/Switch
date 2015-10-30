@@ -14,6 +14,8 @@ import Control.Concurrent.STM.TChan (TChan, newTChan, dupTChan, readTChan, tryRe
 import Switch.Message (checkFormat, readDestination, readSource, readText, header)
 import Switch.Address (readRequest, respondAccepted, respondNotAccepted)
 import Switch.Types
+import Switch.TimeStamp (stringStamp)
+import qualified Switch.Tags as Tg
 
 {-
  Initial sequence
@@ -25,7 +27,7 @@ main = do
   readChannel <- atomically newTChan
   let channels = (controlChannel, readChannel)
   socket <- listenOn $ PortNumber 4242
-  putStrLn $ "Starting switch on port: " ++ show 4242
+  putStrLn $ Tg.control ++ "Starting switch on port: " ++ show 4242
   forkIO $ switch channels []
   acceptLoop socket channels
 
@@ -52,7 +54,7 @@ obtainAddress handle = do
   let mAddr = readRequest $ unlines msg
   case mAddr of
     Just addr -> do -- send control message do switch thread
-      putStrLn $ "Obtained address request from client: " ++ show addr
+      putStrLn $ Tg.control ++ "Obtained address request from client: " ++ show addr
       return $ Just addr
     Nothing -> do -- say bye, bye to client and close handle
       hPutStrLn handle "Wrong initial sequence! Switch expected address of your client."
@@ -65,16 +67,17 @@ obtainAddress handle = do
 -}
 
 switch channels clients = do
-  let controlChannel = fst channels
-      readChannel    = snd channels
+  let (controlChannel,readChannel) = channels
   input <- atomically $ select readChannel controlChannel
   case input of
+    -- Message came to switch
     Left message -> do
         let maybeChannel = lookup (readDestination message) clients
         case maybeChannel of
           Nothing -> mapM (\(_,channel) -> atomically (writeTChan channel message)) clients
           Just chan -> mapM (\channel -> atomically (writeTChan channel message)) [chan]
         switch channels clients
+    -- Control message came to switch
     Right clientTuple -> do
         let (msgType,addr,handle) = clientTuple
         if msgType == RequestAddr
@@ -84,11 +87,11 @@ switch channels clients = do
                  Nothing -> do
                    newClientChannel <- forkNewClient controlChannel readChannel handle addr
                    let newClientTuple = (addr,newClientChannel)
-                   putStr $ "[internal] Added new client with address: " ++ show addr ++ ". Clients:"
+                   putStr $ Tg.control ++ "Added new client with address: " ++ show addr ++ ". Clients:"
                    dbgShowClients (newClientTuple:clients)
                    switch channels (newClientTuple:clients)
                  Just _ -> do
-                   putStrLn "[internal] Attempt to use duplicate address. Connection closed."
+                   putStrLn $ Tg.control ++ "Attempt to use duplicate address. Connection closed."
                    hPutStrLn handle "Address is already in use. Pick some other number."
                    hPutStrLn handle "Bye!"
                    hClose handle
@@ -97,13 +100,13 @@ switch channels clients = do
                let maybeChannel = lookup addr clients
                case maybeChannel of
                  Nothing -> do
-                     putStrLn "[Error] Internal error occured. Attempt to delete non-existing address"
+                     putStrLn $ Tg.err ++ "Internal error occured. Attempt to delete non-existing address"
                      switch channels clients
                  Just chan -> do
                      let newClients = addr `removeFrom` clients
-                     putStr $ "[internal] Client " ++ show addr ++ " removed. Clients: "
-                     hClose handle
+                     putStr $ Tg.control ++ "Client " ++ show addr ++ " removed. Clients: "
                      dbgShowClients newClients
+                     hClose handle
                      switch channels newClients
                      where removeFrom a = toList.(delete a).fromList
 
@@ -133,17 +136,18 @@ forkNewClient controlChannel readChannel handle addr = do
 {-
  Client thread functions
 -}
+readFromClient :: Address -> Handle -> TChan (ControlMsg,Address,Handle) -> TChan Message -> TChan [Char] -> IO ()
 readFromClient addr handle controlChannel channel killSignal = do
   maybeInput <- timeout (15*10^6) $ readMessage handle
   case maybeInput of
     Nothing -> do
-      putStrLn $ "[internal] Timeout for client " ++ show addr
+      putStrLn $ Tg.control ++ "Timeout for client " ++ show addr
       hPutStrLn handle "Timeout. Bye!"
       killClient
     Just maybeMsg ->
       case maybeMsg of
         Nothing -> do
-          putStrLn $ "[internal] Reached EOF of client " ++ show addr
+          putStrLn $ Tg.control ++ "Reached EOF of client " ++ show addr
           killClient
         Just message -> do
           if checkFormat message == False
@@ -155,7 +159,10 @@ readFromClient addr handle controlChannel channel killSignal = do
                             dest = show . readDestination $ message
                             txt = readText message
                         atomically $ writeTChan channel message
-                        putStrLn $ "[message] " ++src++ "->" ++dest++ ": " ++txt
+                        timeStamp <- stringStamp
+                        let msgDump = src++ "->" ++dest++ ": " ++txt
+                            timeTag = " " ++ timeStamp ++ " "
+                        putStrLn $ Tg.client ++ timeTag ++ msgDump
           readFromClient addr handle controlChannel channel killSignal
 
   where killClient = do
@@ -187,6 +194,7 @@ maybeReadLine handle = do
          else ioError e
     Right line -> return $ Just line
 
+writeToClient :: Address -> Handle -> TChan Message -> TChan [Char] -> IO ()
 writeToClient addr handle channel killSignal = do
   input <- atomically $ select channel killSignal
   case input of
@@ -195,5 +203,5 @@ writeToClient addr handle channel killSignal = do
         writeToClient addr handle channel killSignal
     Right signal -> do
         if signal == "kill"
-           then putStrLn "[internal] Client write thread killed"
-           else putStrLn "[error] Client write thread obtained unknown signal"
+           then putStrLn $ Tg.control ++ "Client write thread killed"
+           else putStrLn $ Tg.err ++ "Client write thread obtained unknown signal"
