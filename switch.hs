@@ -34,33 +34,41 @@ main = do
 {-
  Accept loop with function for obtaining address
 -}
-
 acceptLoop socket channels = do
-  (handle,_,_) <- accept socket
+  (handle,hostname,port) <- accept socket
+  putStrLn $ Tg.control ++ "New user connected from: " ++ hostname ++ ":" ++ show port
   let controlChannel = fst channels
       readChannel    = snd channels
-  addr <- obtainAddress handle
-  case addr of
-    Just address -> do
-        atomically $ writeTChan controlChannel (RequestAddr,address,handle)
-        acceptLoop socket channels
-    Nothing -> do
-        acceptLoop socket channels
+  forkIO $ obtainAddress controlChannel handle
+  acceptLoop socket channels
+  where
+  -- Read two lines from user, decide whether it is a request
+  -- for address and do sth about it
+  obtainAddress controlChannel handle = do
+    addr <- obtainAddressWait handle
+    when (addr /= Nothing ) $ do
+      let Just address = addr
+      atomically $ writeTChan controlChannel (RequestAddr,address,handle)
 
--- Read two lines from user, decide whether it is a request
--- for address and do sth about it
-obtainAddress handle = do
-  msg <- sequence $ take 2 $ repeat $ hGetLine handle
-  let mAddr = readRequest $ unlines msg
-  case mAddr of
-    Just addr -> do -- send control message do switch thread
-      putStrLn $ Tg.control ++ "Obtained address request from client: " ++ show addr
-      return $ Just addr
-    Nothing -> do -- say bye, bye to client and close handle
-      hPutStrLn handle "Wrong initial sequence! Switch expected address of your client."
-      hPutStrLn handle "Bye!"
-      hClose handle
-      return Nothing
+  obtainAddressWait handle = do
+    maybeMsg <- timeout (15*10^6) $ sequence $ take 2 $ repeat $ hGetLine handle
+    case maybeMsg of
+      Just msg -> do
+        let mAddr = readRequest $ unlines msg
+        case mAddr of
+          Just addr -> do -- send control message do switch thread
+            putStrLn $ Tg.control ++ "Obtained address request from client: " ++ show addr
+            return $ Just addr
+          Nothing -> do -- say bye, bye to client and close handle
+            hPutStrLn handle "Wrong initial sequence! Switch expected address of your client."
+            hPutStrLn handle "Bye!"
+            hClose handle
+            return Nothing
+      Nothing -> do
+        hPutStrLn handle "Timeout exceeded."
+        hPutStrLn handle "Bye!"
+        hClose handle
+        return Nothing
 
 {-
  Main switch loop and its functions
@@ -70,16 +78,29 @@ switch channels clients = do
   let (controlChannel,readChannel) = channels
   input <- atomically $ select readChannel controlChannel
   case input of
-    -- Message came to switch
+    -- Message from user came to switch
     Left message -> do
+        timeStamp <- stringStamp
         let maybeChannel = lookup (readDestination message) clients
+            src = show . readSource $ message
+            dest = show . readDestination $ message
+            txt = readText message
+            msgDump = src++ "->" ++dest++ ": " ++txt
+            timeTag = " " ++ timeStamp ++ " "
+            printMsg msgtype = putStrLn $ Tg.client ++ timeTag ++ msgtype ++ msgDump
         case maybeChannel of
-          Nothing -> mapM (\(_,channel) -> atomically (writeTChan channel message)) clients
-          Just chan -> mapM (\channel -> atomically (writeTChan channel message)) [chan]
+          Nothing -> do
+            printMsg "(Broadcast) "
+            mapM (\(_,channel) -> atomically (writeTChan channel message)) clients
+          Just chan -> do
+            printMsg "(Unicast) "
+            mapM (\channel -> atomically (writeTChan channel message)) [chan]
         switch channels clients
+
     -- Control message came to switch
     Right clientTuple -> do
         let (msgType,addr,handle) = clientTuple
+        -- New user request address
         if msgType == RequestAddr
            then do
                let maybeChannel = lookup addr clients
@@ -96,6 +117,7 @@ switch channels clients = do
                    hPutStrLn handle "Bye!"
                    hClose handle
                    switch channels clients
+        -- Some user is going to be removed
            else do
                let maybeChannel = lookup addr clients
                case maybeChannel of
@@ -109,34 +131,26 @@ switch channels clients = do
                      hClose handle
                      switch channels newClients
                      where removeFrom a = toList.(delete a).fromList
+         -- Print connected users
+   where dbgShowClients [] = putStr "\n"
+         dbgShowClients (x:xs)= do
+            let (addr,_) = x
+            putStr $ "("++show addr++"),"
+            dbgShowClients xs
 
--- Read from two channels (user, control) "simultaneousely" and return messages
-select :: TChan a -> TChan b -> STM (Either a b)
-select ch1 ch2 = do
-  a <- readTChan ch1; return (Left a)
-  `orElse` do
-  b <- readTChan ch2; return (Right b)
-
-dbgShowClients [] = putStr "\n"
-
-dbgShowClients (x:xs)= do
-    let (addr,_) = x
-    putStr $ "("++show addr++"),"
-    dbgShowClients xs
-
-forkNewClient controlChannel readChannel handle addr = do
-  --putStrLn $ "Creating new client with address: " ++ show address
-  clientReadChannel <- atomically $ dupTChan readChannel
-  clientWriteChannel <- atomically newTChan
-  killSignal <- atomically newTChan
-  forkIO $ readFromClient addr handle controlChannel clientReadChannel killSignal
-  forkIO $ writeToClient addr handle clientWriteChannel killSignal
-  return clientWriteChannel
+          -- New user connected and his request was accepted => read/write threads are forked
+         forkNewClient controlChannel readChannel handle addr = do
+            --putStrLn $ "Creating new client with address: " ++ show address
+            clientReadChannel <- atomically $ dupTChan readChannel
+            clientWriteChannel <- atomically newTChan
+            killSignal <- atomically newTChan
+            forkIO $ readFromClient addr handle controlChannel clientReadChannel killSignal
+            forkIO $ writeToClient addr handle clientWriteChannel killSignal
+            return clientWriteChannel
 
 {-
  Client thread functions
 -}
-readFromClient :: Address -> Handle -> TChan (ControlMsg,Address,Handle) -> TChan Message -> TChan [Char] -> IO ()
 readFromClient addr handle controlChannel channel killSignal = do
   maybeInput <- timeout (15*10^6) $ readMessage handle
   case maybeInput of
@@ -155,46 +169,37 @@ readFromClient addr handle controlChannel channel killSignal = do
             else if readSource message /= addr
                     then hPutStrLn handle "Wrong source address!"
                     else do
-                        let src = show . readSource $ message
-                            dest = show . readDestination $ message
-                            txt = readText message
                         atomically $ writeTChan channel message
-                        timeStamp <- stringStamp
-                        let msgDump = src++ "->" ++dest++ ": " ++txt
-                            timeTag = " " ++ timeStamp ++ " "
-                        putStrLn $ Tg.client ++ timeTag ++ msgDump
           readFromClient addr handle controlChannel channel killSignal
 
   where killClient = do
           atomically $ writeTChan killSignal "kill"
           atomically $ writeTChan controlChannel (DeleteAddr,addr,handle)
 
-readMessage :: Handle -> IO(Maybe Message)
-readMessage handle = do
-  msgheader <- maybeReadLine handle
-  case msgheader of
-    Just line -> if line == header
-                    then do
-                      msglines <- sequence $ take 3 $ repeat $ maybeReadLine handle
-                      let addNewLines = map (\x-> fmap (++ "\n") x)
-                          maybeFold = foldl (\acc x -> (++) <$> acc <*> x) (Just [])
-                          maybeUnlines = maybeFold . addNewLines
-                      return $ maybeUnlines (Just header:msglines)
-                    else readMessage handle
-    Nothing -> return Nothing
+        readMessage handle = do
+          msgheader <- maybeReadLine handle
+          case msgheader of
+            Just line -> if line == header
+                            then do
+                              msglines <- sequence $ take 3 $ repeat $ maybeReadLine handle
+                              let addNewLines = map (\x-> fmap (++ "\n") x)
+                                  maybeFold = foldl (\acc x -> (++) <$> acc <*> x) (Just [])
+                                  maybeUnlines = maybeFold . addNewLines
+                              return $ maybeUnlines (Just header:msglines)
+                            else readMessage handle
+            Nothing -> return Nothing
 
-maybeReadLine :: Handle -> IO(Maybe String)
-maybeReadLine handle = do
-  input <- try $ hGetLine handle
-  case input of
-    Left e -> do
-      if isEOFError e
-         then do
-             return Nothing
-         else ioError e
-    Right line -> return $ Just line
+        maybeReadLine handle = do
+          input <- try $ hGetLine handle
+          case input of
+            Left e -> do
+              if isEOFError e
+                 then do
+                     return Nothing
+                 else ioError e
+            Right line -> return $ Just line
 
-writeToClient :: Address -> Handle -> TChan Message -> TChan [Char] -> IO ()
+
 writeToClient addr handle channel killSignal = do
   input <- atomically $ select channel killSignal
   case input of
@@ -205,3 +210,10 @@ writeToClient addr handle channel killSignal = do
         if signal == "kill"
            then putStrLn $ Tg.control ++ "Client write thread killed"
            else putStrLn $ Tg.err ++ "Client write thread obtained unknown signal"
+
+-- Read from two channels (user, control) "simultaneousely" and return messages
+select :: TChan a -> TChan b -> STM (Either a b)
+select ch1 ch2 = do
+  a <- readTChan ch1; return (Left a)
+  `orElse` do
+  b <- readTChan ch2; return (Right b)

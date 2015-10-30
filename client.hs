@@ -28,14 +28,14 @@ loop socket addr = do
   dest <- randomDest
   text <- randomText
   hPutStr socket $ createMessage addr dest (Just text)
-  loop socket addr 
+  loop socket addr
 
 readLoop socket = do
   line <- hGetLine socket
   putStrLn line
   readLoop socket
 
-randomDest = randomRIO (1, 10) :: IO Int 
+randomDest = randomRIO (0, 10) :: IO Int 
 
 randomText = do
     len <- randomRIO (5,15) :: IO Int
@@ -47,4 +47,3 @@ generateText 0 str = return str
 generateText x str = do
     char <- randomRIO('a','z') :: IO Char
     generateText (x-1) (char:str)
-
