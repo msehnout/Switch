@@ -15,5 +15,5 @@ cabal.sandbox.config
 *.aux
 *.hp
 *.swp
-switch
-client
+switch/switch
+client/client

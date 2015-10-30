@@ -154,21 +154,25 @@ switch channels clients = do
 readFromClient addr handle controlChannel channel killSignal = do
   maybeInput <- timeout (15*10^6) $ readMessage handle
   case maybeInput of
+    -- Check if there was a timeout
     Nothing -> do
       putStrLn $ Tg.control ++ "Timeout for client " ++ show addr
       hPutStrLn handle "Timeout. Bye!"
       killClient
     Just maybeMsg ->
+      -- Check if input is EOF
       case maybeMsg of
         Nothing -> do
           putStrLn $ Tg.control ++ "Reached EOF of client " ++ show addr
           killClient
+        -- Everything went fine => message obtained
         Just message -> do
           if checkFormat message == False
             then hPutStrLn handle "Error! Bad message format."
             else if readSource message /= addr
                     then hPutStrLn handle "Wrong source address!"
                     else do
+                        -- If message format and source address are ok, send it to switch
                         atomically $ writeTChan channel message
           readFromClient addr handle controlChannel channel killSignal
 
@@ -201,6 +205,7 @@ readFromClient addr handle controlChannel channel killSignal = do
 
 
 writeToClient addr handle channel killSignal = do
+  -- Read messages form switch or read thread
   input <- atomically $ select channel killSignal
   case input of
     Left message -> do
