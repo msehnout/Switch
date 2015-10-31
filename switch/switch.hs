@@ -11,7 +11,7 @@ import Control.Monad.STM (atomically, orElse, STM)
 import Control.Applicative
 import Control.Concurrent.STM.TChan (TChan, newTChan, dupTChan, readTChan, tryReadTChan, writeTChan)
 
-import Switch.Message (checkFormat, readDestination, readSource, readText, header)
+import Switch.Message (checkFormat, readDestination, readSource, readText, header, readMessage)
 import Switch.Address (readRequest, respondAccepted, respondNotAccepted)
 import Switch.Types
 import Switch.TimeStamp (stringStamp)
@@ -179,29 +179,6 @@ readFromClient addr handle controlChannel channel killSignal = do
   where killClient = do
           atomically $ writeTChan killSignal "kill"
           atomically $ writeTChan controlChannel (DeleteAddr,addr,handle)
-
-        readMessage handle = do
-          msgheader <- maybeReadLine handle
-          case msgheader of
-            Just line -> if line == header
-                            then do
-                              msglines <- sequence $ take 3 $ repeat $ maybeReadLine handle
-                              let addNewLines = map (\x-> fmap (++ "\n") x)
-                                  maybeFold = foldl (\acc x -> (++) <$> acc <*> x) (Just [])
-                                  maybeUnlines = maybeFold . addNewLines
-                              return $ maybeUnlines (Just header:msglines)
-                            else readMessage handle
-            Nothing -> return Nothing
-
-        maybeReadLine handle = do
-          input <- try $ hGetLine handle
-          case input of
-            Left e -> do
-              if isEOFError e
-                 then do
-                     return Nothing
-                 else ioError e
-            Right line -> return $ Just line
 
 
 writeToClient addr handle channel killSignal = do

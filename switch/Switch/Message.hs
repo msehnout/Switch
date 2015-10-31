@@ -1,16 +1,22 @@
 module Switch.Message
 ( checkFormat
 , readDestination
-, readSource 
-, readText 
+, readSource
+, readText
 , createMessage
 , header
+, readMessage
 ) where
 
 import Switch.Types
 
 import Text.Regex.Posix
 import Text.Read (readMaybe)
+
+import System.IO (Handle, hGetLine)
+import Control.Exception.Base (try)
+import System.IO.Error (isEOFError)
+import Control.Applicative
 
 -- message format
 zerothLine = "SWITCH MESSAGE"
@@ -48,13 +54,13 @@ readDestination message =
   in read destAddrStr :: Address
 
 readSource :: Message -> Address
-readSource message = 
+readSource message =
   let messageLines = lines message
       (_,_,sourceAddrStr)   = messageLines !! 1 =~ firstLineRE :: (String, String, String)
   in read sourceAddrStr :: Address
 
 readText :: Message -> String
-readText message = 
+readText message =
     let messageLines = lines message
     in messageLines !! 3
 
@@ -67,3 +73,28 @@ createMessage src dest (Just text) =
   in unlines [zerothLine, srcLine, destLine, text]
 
 createMessage src dest Nothing = createMessage src dest (Just "text")
+
+readMessage :: Handle -> IO(Maybe String)
+readMessage handle = do
+  msgheader <- maybeReadLine handle
+  case msgheader of
+    Just line -> if line == header
+                    then do
+                      msglines <- sequence $ take 3 $ repeat $ maybeReadLine handle
+                      let addNewLines = map (\x-> fmap (++ "\n") x)
+                          maybeFold = foldl (\acc x -> (++) <$> acc <*> x) (Just [])
+                          maybeUnlines = maybeFold . addNewLines
+                      return $ maybeUnlines (Just header:msglines)
+                    else readMessage handle
+    Nothing -> return Nothing
+
+  where
+    maybeReadLine handle = do
+      input <- try $ hGetLine handle
+      case input of
+        Left e -> do
+          if isEOFError e
+             then do
+                 return Nothing
+             else ioError e
+        Right line -> return $ Just line
