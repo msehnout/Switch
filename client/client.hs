@@ -21,17 +21,20 @@ main =  do
       sock <- connectTo host $ PortNumber port
       hPutStr sock $ createRequest (read addr :: Int)
       forkIO $ readLoop sock addr
-      loop sock $ read addr
+      repeatTimes <- randomRIO (20, 30) :: IO Int
+      loop sock (read addr) (repeatTimes)
     else putStrLn "Wrong number of arguments!"
 
-loop socket addr = do
+loop socket addr num = do
   delay_us <- randomRIO (1000, 1500) :: IO Int
   let delay_ms = delay_us*10^3
   threadDelay delay_ms
   dest <- randomDest
   text <- randomText
   catch (hPutStr socket $ createMessage addr dest (Just text)) handler
-  loop socket addr
+  if num > 0
+    then loop socket addr (num-1)
+    else putStrLn "Exiting..."
   where
     handler :: SomeException -> IO ()
     handler ex = do
