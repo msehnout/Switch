@@ -23,11 +23,10 @@ createRequest addr = unlines [requestHeader, requestBody ++ show addr]
 
 -- Read the request on server side
 readRequest :: Message -> Maybe Address
-readRequest msg = 
+readRequest msg =
   let [fstLine, sndLine] = take 2 $ lines msg
-      -- fstLine = (lines msg) !! 0
-      -- sndLine = (lines msg) !! 1
       fstMatch = fstLine == requestHeader
+      --Use regular expression to match address
       (_,_,addrStr) = sndLine =~ requestBodyRE :: (String, String, String)
       requestedAddr = readMaybe addrStr :: Maybe Address
   in if fstMatch == False

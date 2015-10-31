@@ -1,9 +1,9 @@
-import Network (connectTo, PortID(PortNumber))
-import System.IO (getLine, putStrLn, hGetLine, hPutStr)
-import System.Environment (getArgs)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception.Base (try, catch, SomeException)
+import Network (connectTo, PortID(PortNumber))
+import System.Environment (getArgs)
 import System.Exit (exitSuccess)
+import System.IO (getLine, putStrLn, hGetLine, hPutStr)
 import System.Random (randomRIO)
 
 import Switch.Message (createMessage, readMessage, readSource, readDestination, readText)
@@ -12,9 +12,11 @@ import Switch.Address (createRequest)
 
 main :: IO()
 main =  do
+  --get arguments from command line
   arguments <- getArgs
   if length arguments >= 3
     then do
+      --Connect to switch server using given informations
       let [host, portStr, addr] = take 3 arguments
       putStrLn $ "Starting client\nHost: " ++ host ++ "\nPort: " ++ portStr
       let port = fromIntegral (read portStr :: Int)
@@ -25,12 +27,14 @@ main =  do
       loop sock (read addr) (repeatTimes)
     else putStrLn "Wrong number of arguments!"
 
+--Send random messages in loop
 loop socket addr num = do
   delay_us <- randomRIO (1000, 1500) :: IO Int
   let delay_ms = delay_us*10^3
   threadDelay delay_ms
   dest <- randomDest
   text <- randomText
+  --try to send message
   catch (hPutStr socket $ createMessage addr dest (Just text)) handler
   if num > 0
     then loop socket addr (num-1)
@@ -41,6 +45,7 @@ loop socket addr num = do
       putStrLn $ "Caught exception; exiting... "
       exitSuccess
 
+--Read messages from switch
 readLoop socket addr = do
   maybeMsg <- readMessage socket
   case maybeMsg of
