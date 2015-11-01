@@ -59,7 +59,7 @@ readLoop socket addr = do
         else printMsg "(Broadcast) "
       readLoop socket addr
     Nothing -> do
-      putStrLn $ "Sth wierd came to my socket..."
+      putStrLn $ "Sth weird came to my socket..."
 
 randomDest = randomRIO (0, 10) :: IO Int
 
