@@ -1,0 +1,182 @@
+\documentclass[11pt,a4paper,titlepage]{article}
+\usepackage[a4paper]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{lipsum}
+
+\usepackage{amsmath, amssymb, amsfonts, amsthm, fouriernc, mathtools}
+% mathtools for: Aboxed (put box on last equation in align envirenment)
+\usepackage{microtype} %improves the spacing between words and letters
+
+\usepackage{graphicx}
+\graphicspath{ {./pics/} {./eps/}}
+\usepackage{epsfig}
+\usepackage{epstopdf}
+
+%% Source code:
+\usepackage{minted} 
+\newminted{bash}{fontsize=\footnotesize}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% COLOR DEFINITIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\usepackage{xcolor} % Enabling mixing colors and color's call by 'svgnames'
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\definecolor{MyColor1}{rgb}{0.2,0.4,0.6} %mix personal color
+\newcommand{\textb}{\color{Black} \usefont{OT1}{lmss}{m}{n}}
+\newcommand{\blue}{\color{MyColor1} \usefont{OT1}{lmss}{m}{n}}
+\newcommand{\blueb}{\color{MyColor1} \usefont{OT1}{lmss}{b}{n}}
+\newcommand{\red}{\color{LightCoral} \usefont{OT1}{lmss}{m}{n}}
+\newcommand{\green}{\color{Turquoise} \usefont{OT1}{lmss}{m}{n}}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% FONTS AND COLORS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%    SECTIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\usepackage{titlesec}
+\usepackage{sectsty}
+%%%%%%%%%%%%%%%%%%%%%%%%
+%set section/subsections HEADINGS font and color
+\sectionfont{\color{MyColor1}}  % sets colour of sections
+\subsectionfont{\color{MyColor1}}  % sets colour of sections
+
+%set section enumerator to arabic number (see footnotes markings alternatives)
+\renewcommand\thesection{\arabic{section}.} %define sections numbering
+\renewcommand\thesubsection{\thesection\arabic{subsection}} %subsec.num.
+
+%define new section style
+\newcommand{\mysection}{
+\titleformat{\section} [runin] {\usefont{OT1}{lmss}{b}{n}\color{MyColor1}} 
+{\thesection} {3pt} {} } 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%       CAPTIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\usepackage{caption}
+\usepackage{subcaption}
+%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%       !!!EQUATION (ARRAY) --> USING ALIGN INSTEAD
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%using amsmath package to redefine eq. numeration (1.1, 1.2, ...) 
+%%%%%%%%%%%%%%%%%%%%%%%%
+\renewcommand{\theequation}{\thesection\arabic{equation}}
+
+%set box background to grey in align environment 
+\usepackage{etoolbox}% http://ctan.org/pkg/etoolbox
+\makeatletter
+\patchcmd{\@Aboxed}{\boxed{#1#2}}{\colorbox{black!15}{$#1#2$}}{}{}%
+\patchcmd{\@boxed}{\boxed{#1#2}}{\colorbox{black!15}{$#1#2$}}{}{}%
+\makeatother
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\makeatletter
+\let\reftagform@=\tagform@
+\def\tagform@#1{\maketag@@@{(\ignorespaces\textcolor{red}{#1}\unskip\@@italiccorr)}}
+\renewcommand{\eqref}[1]{\textup{\reftagform@{\ref{#1}}}}
+\makeatother
+\usepackage{hyperref}
+\hypersetup{colorlinks=true}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% PREPARE TITLE
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\title{\blue Computer Networking I \\
+\blueb Switch assignment}
+\author{Martin Sehnoutka}
+\date{\today}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+
+\section{Messages format}
+
+\section{Software architecture}
+
+\subsection{Server side - switch}
+
+\begin{minted}{haskell}
+main :: IO()
+main = do
+  controlChannel <- atomically newTChan
+  readChannel <- atomically newTChan
+  let channels = (controlChannel, readChannel)
+  socket <- listenOn $ PortNumber 4242
+  putStrLn $ Tg.control ++ "Starting switch on port: " ++ show 4242
+  forkIO $ switch channels []
+  acceptLoop socket channels
+\end{minted}
+
+\subsection{Client side}
+
+\section{Installation on Lintula machines}
+
+First step is to add ghc \footnote{Glasgow Haskell Compiler} and cabal \footnote{Common Architecture for Building Applications and Libraries} into your path variable:
+\begin{bashcode}
+$ PATH=$PATH:/usr/local/lang/haskell/ghc-7.10.2/bin
+\end{bashcode}
+Then it is necessary to update cabal package database. These packages will be installed into \textasciitilde/.cabal directory, thus it does not need root privileges. 
+\begin{bashcode}
+$ cabal update
+\end{bashcode}
+Now it is possible to install both switch and client using cabal installers.
+\begin{bashcode}
+$ cd <SWITCH_DIR>/switch
+$ cabal sandbox init
+$ cabal install -j
+$ cd <SWITCH_DIR>/client
+$ cabal sandbox init
+$ cabal install -j
+\end{bashcode}
+
+\section{Testing}
+I wrote little script for testing purposes. This script runs switch and then in loop starts 8 clients. Output of each process is stored in different file: switch.log, client0.log, client1.log, etc.. By exploring these file I can compare messages that arrived to each client and switch.
+
+For example I can explore messages that arrived into switch with destination address 3 and compare them with client 3 output:
+\begin{bashcode}
+$ cat switch.log | grep --regexp='(Unicast) [0-9]->3' | tail --lines=6
+[client]  18:16:52 (Unicast) 5->3: uksvykjm
+[client]  18:16:58 (Unicast) 1->3: kgxqmenyqw
+[client]  18:17:03 (Unicast) 2->3: vntppmmkjudrwag
+[client]  18:17:05 (Unicast) 0->3: uuonx
+[client]  18:17:05 (Unicast) 7->3: turvwhxhf
+[client]  18:17:05 (Unicast) 6->3: plexvthznugwllv
+$ cat client3.log | grep --regexp='(For me)' | tail --lines=6
+(For me) 1->3: kgxqmenyqw
+(For me) 2->3: vntppmmkjudrwag
+(For me) 0->3: uuonx
+(For me) 7->3: turvwhxhf
+(For me) 6->3: plexvthznugwllv
+(For me) 7->3: nuwzqpmkko
+\end{bashcode}
+As you can see, messages are sent and received in different order, but this is expected behavior. I can do the same for broadcast messages:
+\begin{bashcode}
+$ cat switch.log | grep Broadcast | head --lines=5
+[client]  18:16:45 (Broadcast) 7->8: mdowboqvzxjg
+[client]  18:16:46 (Broadcast) 3->10: ywspkekbq
+[client]  18:16:46 (Broadcast) 4->8: ofxcfrixmtqps
+[client]  18:16:46 (Broadcast) 6->8: xqgtta
+[client]  18:16:46 (Broadcast) 5->8: zfhkjya
+$ cat client7.log | grep Broadcast | head --lines=5
+(Broadcast) 3->10: ywspkekbq
+(Broadcast) 4->8: ofxcfrixmtqps
+(Broadcast) 6->8: xqgtta
+(Broadcast) 5->8: zfhkjya
+(Broadcast) 5->9: bclpwbfpshnuum
+\end{bashcode}
+In this case I can even see, that switch does not send messages back to their source address because very first message is from client 7, but is not present in client's log file.
+
+\end{document}
