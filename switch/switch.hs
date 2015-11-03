@@ -4,7 +4,7 @@ import Network
 import System.IO (Handle, hGetLine, hPutStrLn, hPutStr, hClose)
 import System.IO.Error (isEOFError)
 import System.Timeout (timeout)
-import Control.Exception.Base (try)
+import Control.Exception.Base (onException)
 import Control.Concurrent (forkIO)
 import Control.Monad (when)
 import Control.Monad.STM (atomically, orElse, STM)
@@ -127,13 +127,15 @@ switch channels clients = do
                    newClientChannel <- forkNewClient controlChannel readChannel handle addr
                    let newClientTuple = (addr,newClientChannel)
                    putStr $ Tg.control ++ "Added new client with address: " ++ show addr ++ ". Clients:"
+                   hPutStrLn handle respondAccepted
                    dbgShowClients (newClientTuple:clients)
                    switch channels (newClientTuple:clients)
                  --Don't accept new client.
                  Just _ -> do
                    putStrLn $ Tg.control ++ "Attempt to use duplicate address. Connection closed."
-                   hPutStrLn handle "Address is already in use. Pick some other number."
-                   hPutStrLn handle "Bye!"
+                   --hPutStrLn handle "Address is already in use. Pick some other number."
+                   --hPutStrLn handle "Bye!"
+                   hPutStrLn handle respondNotAccepted
                    hClose handle
                    switch channels clients
            -- Timeout of some user exceeded or EOF reached. The user is going to be removed.
@@ -205,7 +207,7 @@ writeToClient addr handle channel killSignal = do
   input <- atomically $ select channel killSignal
   case input of
     Left message -> do
-        when (readSource message /= addr) $ hPutStrLn handle message
+        onException (when (readSource message /= addr) $ hPutStrLn handle message) (putStrLn "Switch could not write to client.")
         writeToClient addr handle channel killSignal
     Right signal -> do
         if signal == "kill"

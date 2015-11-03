@@ -102,5 +102,6 @@ readMessage handle = do
           if isEOFError e
              then do
                  return Nothing
-             else ioError e
+             else do--ioError e
+                 return Nothing
         Right line -> return $ Just line

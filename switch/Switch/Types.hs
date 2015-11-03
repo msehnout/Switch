@@ -8,6 +8,6 @@ module Switch.Types
 type Address = Int
 type Message = String
 
-data AddressRespond = Accepted | NotAccepted deriving (Show)
+data AddressRespond = Accepted | NotAccepted deriving (Eq, Show)
 
 data ControlMsg = RequestAddr | DeleteAddr deriving (Eq, Show)
