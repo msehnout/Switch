@@ -16,6 +16,7 @@
 %% Source code:
 \usepackage{minted} 
 \newminted{bash}{fontsize=\footnotesize}
+\newminted{haskell}{fontsize=\footnotesize}
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -104,23 +105,70 @@
 
 \section{Messages format}
 
+For this assignment I defined three different types of messages. First one is for address request, because unique address for every node is one of requirements for the switch. As a consequence, there is also address respond. In this message switch accepts or denies the requested address. Last message is for normal communication between nodes. This message does not have any acknowledge because TCP takes care of this.
+
+Every message starts with header because the switch is reading lines from an input and compare them to this header. After header is found in the input, it reads N more lines (where N is number of lines in given message type) and then check the format and content of the message.
+
+The whole communication protocol is in plain text to preserve simplicity. 
+
+\paragraph{Address request from client}
+\begin{minted}{xml}
+SWITCH REQUEST
+Address: <node_address>
+\end{minted}
+
+\paragraph{Switch respond to address request}
+\begin{minted}{xml}
+SWITCH RESPOND
+Address accepted OR not accepted
+\end{minted}
+
+\paragraph{Message format}
+\begin{minted}{xml}
+SWITCH MESSAGE
+Source: <node_address>
+Destination: <node_address>
+<message_body>
+\end{minted}
+
 \section{Software architecture}
+
+In this section architecture of the whole program is very briefly described. The aim of this section is to make reading source code easier, by providing so called "big picture".
+
+\subsection{Language used}
+I chose Haskell language. Haskell is purely functional language with wide range of packages and great support for concurrent programming\footnote{Source: www.haskell.org}. Haskell platform also contain automated build system, that is used to download all necessary dependencies and install both switch and client software.
 
 \subsection{Server side - switch}
 
-\begin{minted}{haskell}
-main :: IO()
-main = do
-  controlChannel <- atomically newTChan
-  readChannel <- atomically newTChan
-  let channels = (controlChannel, readChannel)
-  socket <- listenOn $ PortNumber 4242
-  putStrLn $ Tg.control ++ "Starting switch on port: " ++ show 4242
-  forkIO $ switch channels []
-  acceptLoop socket channels
-\end{minted}
+The switch program starts with initial sequence of opening network socket (localhost, port 4242) and creating necessary communication channels. Then the program flow is forked into two threads. The first one is "acceptLoop":
+\begin{haskellcode}
+acceptLoop socket channels = do
+  (handle,hostname,port) <- accept socket --waiting for incoming connections
+\end{haskellcode}
+In this loop program is waiting for incoming connections. The second thread is "switch":
+\begin{haskellcode}
+switch channels clients = do
+  let (controlChannel,readChannel) = channels
+  input <- atomically $ select readChannel controlChannel --waiting for input
+\end{haskellcode}
+This functions performs the message switching between clients and also manages list of connected users.
+
+Before a new client is allowed to use switch, it must provide its address and this address must be accepted by switch thread. For this purpose another thread is created. It is called "obtainAddress". After the address is obtained, this thread send control message to switch thread. The switch thread reads this control message and if the node address is not used, it creates another two threads for client. One is for reading from client (readFromClient) and second one is to write messages to client (writeToClient).
 
 \subsection{Client side}
+
+Clients side is much simpler. First the client opens socket to connect with switch, then sends address request and waits for a respond. If the respond is accepted, program flow is again forked into two threads: read and write. The client's side contain a lot of randomness, e.g. number of messages, payload, delays.
+
+The client program takes 3 command line arguments. First one is ip address of switch, second one is port for incoming connections and the last one is node address.
+
+\begin{haskellcode}
+main :: IO()
+main =  do
+  arguments <- getArgs
+  if length arguments >= 3
+    then do
+      let [host, portStr, addr] = take 3 arguments
+\end{haskellcode}
 
 \section{Installation on Lintula machines}
 
@@ -144,6 +192,18 @@ $ cabal install -j
 
 \section{Testing}
 I wrote little script for testing purposes. This script runs switch and then in loop starts 8 clients. Output of each process is stored in different file: switch.log, client0.log, client1.log, etc.. By exploring these file I can compare messages that arrived to each client and switch.
+
+\begin{bashcode}
+./switch/.cabal-sandbox/bin/Switch &> switch.log &
+switchpid=$!
+echo "Starting switch with PID:$switchpid"
+
+for i in `seq 0 7`;
+do
+    echo "Starting client $i"
+    ./client/.cabal-sandbox/bin/client localhost 4242 $i &> client$i.log &
+done
+\end{bashcode}
 
 For example I can explore messages that arrived into switch with destination address 3 and compare them with client 3 output:
 \begin{bashcode}
