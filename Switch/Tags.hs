@@ -4,7 +4,6 @@ module Switch.Tags
 , client
 ) where
 
-makeItTag xs = "[" ++ xs ++ "] "
-err = makeItTag "error"
-control = makeItTag "control"
-client = makeItTag "client"
+err = "error"
+control = "control"
+client = "client"

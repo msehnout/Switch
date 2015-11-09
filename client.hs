@@ -8,16 +8,12 @@ import System.Exit (exitSuccess)
 import System.IO (getLine, putStrLn, hGetLine, hPutStr, hClose)
 import System.Random (randomRIO)
 
-import Switch.Message (createMessage, readMessage, readSource, readDestination, readText)
 import Switch.Address (createRequest, readRespond)
+import Switch.Log
+import Switch.Message (createMessage, readMessage, readSource, readDestination, readText)
 import Switch.Types (AddressRespond(..))
-
-{-
-TODO:no mozno tie randomy by si si mohol dopredu nagenerovat cez randomRs
-replicateM_ repeatTimes $ loop sock (read addr)
-ale generateText je tiez replicateM
-omrknout Control.Monad.LoopWhile a Control.Monad.Loops (whileJust_ ) --> na ten read loop
--}
+import Switch.TimeStamp (stringStamp)
+import qualified Switch.Tags as Tg
 
 main :: IO()
 main =  do
@@ -27,7 +23,7 @@ main =  do
     then do
       --Connect to switch server using given informations
       let [host, portStr, addr] = take 3 arguments
-      putStrLn $ "Starting client\nHost: " ++ host ++ "\nPort: " ++ portStr
+      printLog Tg.control $ "Starting client\nHost: " ++ host ++ "\nPort: " ++ portStr
       let port = fromIntegral (read portStr :: Int)
       sock <- connectTo host $ PortNumber port
       hPutStr sock $ createRequest (read addr :: Int)
@@ -35,11 +31,11 @@ main =  do
       if (readRespond (unlines respond)) == Accepted
         then do
           forkIO $ readLoop sock addr
-          repeatTimes <- randomRIO (8, 12) :: IO Int --TODO:change this
+          repeatTimes <- randomRIO (20, 30) :: IO Int
           replicateM_ repeatTimes $ loop sock (read addr)
           exitProcedure sock
         else do
-          putStrLn "Address not accepted."
+          printLog Tg.err "Address not accepted."
           exitProcedure sock
     else putStrLn "Wrong number of arguments!"
   where exitProcedure sock = do
@@ -67,34 +63,16 @@ loop socket addr = do
       putStrLn $ "Caught exception; exiting... "
       exitSuccess
 
---Read messages from switch
-{-
-readLoop socket addr = do
-  maybeMsg <- readMessage socket
-  case maybeMsg of
-    Just msg -> do
-      let src = show . readSource $ msg
-          dest = show . readDestination $ msg
-          txt = readText msg
-          printMsg typeOfMsg = putStrLn $ typeOfMsg ++ src ++ "->" ++ dest ++ ": " ++ txt
-      if addr == dest
-        then printMsg "(For me) "
-        else printMsg "(Broadcast) "
-      readLoop socket addr
-    Nothing -> do
-      putStrLn $ "Sth weird came to my socket..."
--}
-
 readLoop socket addr = whileJust_ (readMessage socket) $ printMessage addr
 
 printMessage addr msg = do
   let src = show . readSource $ msg
       dest = show . readDestination $ msg
       txt = readText msg
-      printMsg typeOfMsg = putStrLn $ typeOfMsg ++ src ++ "->" ++ dest ++ ": " ++ txt
+      msgDump = src ++ "->" ++ dest ++ ": " ++ txt
   if addr == dest
-    then printMsg "(For me) "
-    else printMsg "(Broadcast) "
+    then printLog "For me    " msgDump
+    else printLog "Broadcast " msgDump
 
 randomDest = randomRIO (0, 10) :: IO Int
 

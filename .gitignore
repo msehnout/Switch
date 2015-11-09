@@ -21,3 +21,4 @@ client/client
 doc/*
 !doc/*.tex
 !doc/*.pdf
+log/*.log
