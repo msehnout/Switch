@@ -180,63 +180,76 @@ Then it is necessary to update cabal package database. These packages will be in
 \begin{bashcode}
 $ cabal update
 \end{bashcode}
-Now it is possible to install both switch and client using cabal installers.
+Now it is possible to install both switch and client using cabal installer.
 \begin{bashcode}
-$ cd <SWITCH_DIR>/switch
-$ cabal sandbox init
-$ cabal install -j
-$ cd <SWITCH_DIR>/client
 $ cabal sandbox init
 $ cabal install -j
 \end{bashcode}
+
+\subsection{Clean up}
+After running update command, cabal directory will become really big so I always run
+\begin{bashcode}
+$ rm -rf ~/.cabal/
+\end{bashcode}
+after I'm done with testing.
 
 \section{Testing}
 I wrote little script for testing purposes. This script runs switch and then in loop starts 8 clients. Output of each process is stored in different file: switch.log, client0.log, client1.log, etc.. By exploring these file I can compare messages that arrived to each client and switch.
 
 \begin{bashcode}
-./switch/.cabal-sandbox/bin/Switch &> switch.log &
+./.cabal-sandbox/bin/switch &> log/switch.log &
 switchpid=$!
 echo "Starting switch with PID:$switchpid"
 
 for i in `seq 0 7`;
 do
     echo "Starting client $i"
-    ./client/.cabal-sandbox/bin/client localhost 4242 $i &> client$i.log &
+    ./.cabal-sandbox/bin/client localhost 4242 $i &> log/client$i.log &
 done
 \end{bashcode}
 
-For example I can explore messages that arrived into switch with destination address 3 and compare them with client 3 output:
+For example I can explore messages that arrived into switch with destination address 6 and compare them with client 6 output:
 \begin{bashcode}
-$ cat switch.log | grep --regexp='(Unicast) [0-9]->3' | tail --lines=6
-[client]  18:16:52 (Unicast) 5->3: uksvykjm
-[client]  18:16:58 (Unicast) 1->3: kgxqmenyqw
-[client]  18:17:03 (Unicast) 2->3: vntppmmkjudrwag
-[client]  18:17:05 (Unicast) 0->3: uuonx
-[client]  18:17:05 (Unicast) 7->3: turvwhxhf
-[client]  18:17:05 (Unicast) 6->3: plexvthznugwllv
-$ cat client3.log | grep --regexp='(For me)' | tail --lines=6
-(For me) 1->3: kgxqmenyqw
-(For me) 2->3: vntppmmkjudrwag
-(For me) 0->3: uuonx
-(For me) 7->3: turvwhxhf
-(For me) 6->3: plexvthznugwllv
-(For me) 7->3: nuwzqpmkko
+$ cat switch.log | grep --regexp='(Unicast) [0-9]->6' | head --lines=6
+t: 17:52:36 | [client] (Unicast) 3->6: loigsbbrjisvy
+t: 17:52:39 | [client] (Unicast) 7->6: rckoveje
+t: 17:52:40 | [client] (Unicast) 6->6: qhtfwyygvfj
+t: 17:52:40 | [client] (Unicast) 3->6: klhkyqe
+t: 17:52:43 | [client] (Unicast) 1->6: jreoqbrmrukxegx
+t: 17:52:44 | [client] (Unicast) 4->6: rifyndnwlkrym
+
+$ cat client6.log | grep --regexp='For me' | head --lines=6
+t: 17:52:36 | [For me    ] 3->6: loigsbbrjisvy
+t: 17:52:39 | [For me    ] 7->6: rckoveje
+t: 17:52:40 | [For me    ] 3->6: klhkyqe
+t: 17:52:43 | [For me    ] 1->6: jreoqbrmrukxegx
+t: 17:52:44 | [For me    ] 4->6: rifyndnwlkrym
+t: 17:52:44 | [For me    ] 2->6: faxdvxqb
 \end{bashcode}
-As you can see, messages are sent and received in different order, but this is expected behavior. I can do the same for broadcast messages:
+In this case I can see, that switch does not send messages back to their source address because the third message is from client 6, but is not present in client's log file.
+
+I can do the same for broadcast messages:
 \begin{bashcode}
 $ cat switch.log | grep Broadcast | head --lines=5
-[client]  18:16:45 (Broadcast) 7->8: mdowboqvzxjg
-[client]  18:16:46 (Broadcast) 3->10: ywspkekbq
-[client]  18:16:46 (Broadcast) 4->8: ofxcfrixmtqps
-[client]  18:16:46 (Broadcast) 6->8: xqgtta
-[client]  18:16:46 (Broadcast) 5->8: zfhkjya
+t: 17:52:33 | [client] (Broadcast) 5->8: fnmyvnbu
+t: 17:52:33 | [client] (Broadcast) 0->10: kokeiym
+t: 17:52:34 | [client] (Broadcast) 6->10: ksonkagrgeuzwvt
+t: 17:52:35 | [client] (Broadcast) 0->9: cowmv
+t: 17:52:35 | [client] (Broadcast) 6->9: erfozavxllymd
+
 $ cat client7.log | grep Broadcast | head --lines=5
-(Broadcast) 3->10: ywspkekbq
-(Broadcast) 4->8: ofxcfrixmtqps
-(Broadcast) 6->8: xqgtta
-(Broadcast) 5->8: zfhkjya
-(Broadcast) 5->9: bclpwbfpshnuum
+t: 17:52:33 | [Broadcast ] 5->8: fnmyvnbu
+t: 17:52:33 | [Broadcast ] 0->10: kokeiym
+t: 17:52:34 | [Broadcast ] 6->10: ksonkagrgeuzwvt
+t: 17:52:35 | [Broadcast ] 0->9: cowmv
+t: 17:52:35 | [Broadcast ] 6->9: erfozavxllymd
 \end{bashcode}
-In this case I can even see, that switch does not send messages back to their source address because very first message is from client 7, but is not present in client's log file.
+
+I tried this project on Lintula machine:
+\begin{minted}{haskell}
+$ uname -a
+Linux pikkukorppi 2.6.32-573.7.1.el6.x86_64 #1 SMP Thu Sep 10 13:42:16 
+EDT 2015 x86_64 x86_64 x86_64 GNU/Linux
+\end{minted}
 
 \end{document}

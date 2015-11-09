@@ -19,7 +19,7 @@ executable switch
   main-is:             switch.hs
   -- other-modules:
   -- other-extensions:
-  build-depends:       base >=4.7 && <4.8, regex-posix >=0.95 && <0.96, time >=1.4, network >= 2.6, stm >= 2.4.2, containers >= 0.5.5.1
+  build-depends:       base >=4.7, regex-posix >=0.95 && <0.96, time >=1.4, network >= 2.6, stm >= 2.4.2, containers >= 0.5.5.1
   -- hs-source-dirs:
   default-language:    Haskell2010
 
@@ -27,6 +27,6 @@ executable client
   main-is:             client.hs
   -- other-modules:
   -- other-extensions:
-  build-depends:       base >=4.7 && <4.8, network >= 2.6, random >= 1.1, regex-posix >=0.95 && <0.96, monad-loops >=0.4.2, time >=1.4
+  build-depends:       base >=4.7, network >= 2.6, random >= 1.1, regex-posix >=0.95 && <0.96, monad-loops >=0.4.2, time >=1.4
   -- hs-source-dirs:
   default-language:    Haskell2010
