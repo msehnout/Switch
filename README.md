@@ -1,5 +1,5 @@
-# CreepySwitch
-Application layer switch replica.
+# Switch
+Just a school project.
 
 ## Message format
 ```
